@@ -1,0 +1,19 @@
+This is a simple readme file for multipath IP implementation.
+
+Totally, there are three new source files added into the kernel for MPIP which are listed below.
+1. include/linux/ip_mpip.h
+This file mainly contains the definitions of mpip variables, methods and structs. Most importantly, it contains the definitions of all the tables
+
+2. net/ipv4/ip_mpip.c
+This file contains the general implementation of mpip, the two methods insert_mpip_cm and process_mpip_cm are defined in this file. All the other methods across mpip all serve to these two methods.
+
+3. net/ipv4/ip_mpip_map.c
+This file mainly contains the methods defined for the table operations, like add/delete/update table entries in the defined tables.
+
+This implementation is based on Multipath TCP, which means that you use MPTCP and MPIP together. The usage of MPTCP, you can check from multipath TCP's website. For MPIP, Just run 
+    sudo sysctl sysctl_mpip_enabled=1
+to enable MPIP, and run
+    sudo sysctl sysctl_mpip_enabled=0
+to disable MPIP.
+
+To test the functionality of MPIP, do remember to have two machines with this ubuntu kernel installed, then enable MPIP at both ends, then you can try MPIP.
