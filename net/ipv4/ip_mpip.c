@@ -70,98 +70,98 @@ static struct ctl_table mpip_table[] =
  		.data = &sysctl_mpip_enabled,
  		.maxlen = sizeof(int),
  		.mode = 0644,
- 		.proc_handler = &proc_dointvec
+ 		.proc_handler = proc_dointvec
  	},
  	{
  		.procname = "mpip_send",
  		.data = &sysctl_mpip_send,
  		.maxlen = sizeof(int),
  		.mode = 0644,
- 		.proc_handler = &proc_dointvec
+ 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_rcv",
  	 		.data = &sysctl_mpip_rcv,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_log",
  	 		.data = &sysctl_mpip_log,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_tp_time",
  	 		.data = &sysctl_mpip_tp_time,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_bw_time",
  	 		.data = &sysctl_mpip_bw_time,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_exp_time",
  	 		.data = &sysctl_mpip_exp_time,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_bw_step",
  	 		.data = &sysctl_mpip_bw_step,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_path_diff",
  	 		.data = &sysctl_mpip_path_diff,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
  	 		.procname = "mpip_qd",
  	 		.data = &sysctl_mpip_qd,
  	 		.maxlen = sizeof(int),
  	 		.mode = 0644,
- 	 		.proc_handler = &proc_dointvec
+ 	 		.proc_handler = proc_dointvec
  	},
  	{
 			.procname = "mpip_skype",
 			.data = &sysctl_mpip_skype,
 			.maxlen = sizeof(int),
 			.mode = 0644,
-			.proc_handler = &proc_dointvec
+			.proc_handler = proc_dointvec
 	},
 	{
 			.procname = "mpip_hb",
 			.data = &sysctl_mpip_hb,
 			.maxlen = sizeof(int),
 			.mode = 0644,
-			.proc_handler = &proc_dointvec
+			.proc_handler = proc_dointvec
 	},
  	{
 			.procname = "mpip_use_tcp",
 			.data = &sysctl_mpip_use_tcp,
 			.maxlen = sizeof(int),
 			.mode = 0644,
-			.proc_handler = &proc_dointvec
+			.proc_handler = proc_dointvec
 	},
  	{
 			.procname = "mpip_tcp_buf_count",
 			.data = &sysctl_mpip_tcp_buf_count,
 			.maxlen = sizeof(int),
 			.mode = 0644,
-			.proc_handler = &proc_dointvec
+			.proc_handler = proc_dointvec
 	},
  	{ }
 };
@@ -419,9 +419,9 @@ unsigned char get_path_id(unsigned char *node_id,
 }
 
 //get the path stat id from ps_head, to decide which path's delay will be feedback
-unsigned char get_path_stat_id(unsigned char *dest_node_id,  __s32 *delay)
+unsigned char get_path_stat_id(unsigned char *dest_node_id, unsigned char session_id,  __s32 *delay)
 {
-	if (!dest_node_id)
+	if (!dest_node_id || session_id <=0)
 		return 0;
 
 	if (dest_node_id[0] == dest_node_id[1])
@@ -429,7 +429,7 @@ unsigned char get_path_stat_id(unsigned char *dest_node_id,  __s32 *delay)
 		return 0;
 	}
 
-	return find_earliest_path_stat_id(dest_node_id,  delay);
+	return find_earliest_path_stat_id(dest_node_id, session_id, delay);
 }
 
 //check bad ip addresses.
@@ -458,6 +458,11 @@ bool check_bad_addr(__be32 addr)
 	myaddr = convert_addr(224, 0, 0, 251);
 	if (myaddr == addr)
 		return false;
+	
+	// myaddr = convert_addr(216, 165, 113, 122);
+	// if (myaddr == addr)
+	// 	return false;
+
 
 	if (((addr & 0xff) == 255) || ((addr>>8 & 0xff) == 255) || ((addr>>16 & 0xff) == 255) || ((addr>>24 & 0xff) == 255))
 		return false;
@@ -904,13 +909,16 @@ void send_mpip_enable(struct sk_buff *skb, bool sender, bool reverse)
 	}
 	else if (item)
 	{
-		mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
+		if(item->sent_count <= 5)
+		{
+			mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
 
-//		if (new_and_send(skb, MPIP_ENABLE_FLAGS))
-//			item->sent_count += 1;
+	//		if (new_and_send(skb, MPIP_ENABLE_FLAGS))
+	//			item->sent_count += 1;
 
-		if (send_mpip_msg(skb, sender, reverse, MPIP_ENABLE_FLAGS, 0))
-			item->sent_count += 1;
+			if (send_mpip_msg(skb, sender, reverse, MPIP_ENABLE_FLAGS, 0))
+				item->sent_count += 1;
+		}		
 	}
 	else
 	{
@@ -1025,6 +1033,8 @@ static bool copy_and_send(struct sk_buff *skb, bool reverse,
 	int err = 0;
 	struct sk_buff *nskb = NULL;
 	struct rtable *rt;
+	struct tcphdr *tcph = NULL;
+	struct udphdr *udph = NULL;
 
 	if(!skb)
 	{
@@ -1091,12 +1101,13 @@ static bool copy_and_send(struct sk_buff *skb, bool reverse,
 		reverse_addr_and_port(nskb);
 	}
 
-	if (skb_tailroom(nskb) < (MPIP_CM_LEN + 2))
-	{
-		printk( "%d, %d, %s, %s, %d\n", skb_tailroom(nskb), nskb->len, __FILE__, __FUNCTION__, __LINE__);
-		nskb->tail -= MPIP_CM_LEN + 2;
-		nskb->len  -= MPIP_CM_LEN + 2;
-	}
+	// if (skb_tailroom(nskb) < (MPIP_CM_LEN + 2))
+	// {
+	// 	printk( "%d, %d, %s, %s, %d\n", skb_tailroom(nskb), nskb->len, __FILE__, __FUNCTION__, __LINE__);
+	// 	nskb->tail -= MPIP_CM_LEN + 2;
+	// 	nskb->len  -= MPIP_CM_LEN + 2;
+	// 	// return false;
+	// }
 
 	iph = ip_hdr(nskb);
 
@@ -1109,6 +1120,7 @@ static bool copy_and_send(struct sk_buff *skb, bool reverse,
 		return false;
 	}
 
+	iph = ip_hdr(nskb);
 	if (new_saddr != 0)
 	{
 		new_dst_dev = find_dev_by_addr(new_saddr);
@@ -1116,17 +1128,41 @@ static bool copy_and_send(struct sk_buff *skb, bool reverse,
 		{
 			iph->saddr = new_saddr;
 			iph->daddr = new_daddr;
-		}
+		}		
 	}
+	if(iph->protocol == IPPROTO_TCP)
+	{
 
-	iph = ip_hdr(nskb);
-
+		tcph = tcp_hdr(nskb); //this fixed the problem
+		tcph->check = 0;
+		// tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+		// 		nskb->len - iph->ihl * 4, iph->protocol,
+		// 		csum_partial((char *)tcph, nskb->len - iph->ihl * 4, 0));     //pay attention here!!!
+		tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+					nskb->len - iph->ihl*4, iph->protocol,
+					csum_partial((unsigned char *)tcph, nskb->len-iph->ihl*4, 0));
+		// nskb->csum_start = skb_transport_header(nskb) - nskb->head;
+		// nskb->csum_offset = offsetof(struct tcphdr, check);
+		skb->ip_summed = CHECKSUM_UNNECESSARY;
+	}
+	else if(iph->protocol == IPPROTO_UDP)
+	{
+		udph = udp_hdr(nskb);
+		udph->len = htons(nskb->len - iph->ihl * 4);
+		udph->check = 0;
+		udph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+					nskb->len - iph->ihl*4, iph->protocol,
+					csum_partial((unsigned char *)udph, nskb->len-iph->ihl*4, 0));
+		nskb->ip_summed = CHECKSUM_UNNECESSARY;
+	}
+		
+	// iph = ip_hdr(nskb);
 	iph->id = 99;
 
 	if (ip_route_out(nskb, iph->saddr, iph->daddr))
 	{
-		skb_dst(skb)->dev = find_dev_by_addr(iph->saddr);
-		skb->dev = find_dev_by_addr(iph->saddr);
+		skb_dst(nskb)->dev = find_dev_by_addr(iph->saddr);
+		nskb->dev = find_dev_by_addr(iph->saddr);
 
 		err = __ip_local_out(nskb);
 		if (likely(err == 1))
@@ -1935,6 +1971,7 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 		unsigned char flags, unsigned char session_id)
 {
 	int  i;
+	// bool is_inc = 0;
     struct timespec tv;
 	u32  midtime;
 	struct tcphdr *tcph = NULL;
@@ -1949,6 +1986,9 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 	__s16 checksum = 0;
 
 	bool is_new = true;
+	struct iphdr *iph ;
+	struct mpip_cm send_mpip_cm;
+
 	if (!skb)
 	{
 		printk("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
@@ -1962,6 +2002,7 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 	}
 
 	if (skb_tailroom(skb) < (MPIP_CM_LEN + 2))
+	// if (skb_tailroom(skb) < 5)
 	{
 //		unsigned int mss = tcp_original_mss(skb->sk);
 //		unsigned int mss1 = tcp_current_mss(skb->sk);
@@ -2000,14 +2041,18 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 					skb->len, __FILE__, __FUNCTION__, __LINE__);
 			skb->tail -= MPIP_CM_LEN + 1;
 			skb->len  -= MPIP_CM_LEN + 1;
+			// is_inc = 1;
 
-//			if (pskb_expand_head(skb, 0, MPIP_CM_LEN + 1, GFP_ATOMIC))
-//			{
-//				mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
-//				return false;
-//			}
+			// if (pskb_expand_head(skb, 0, MPIP_CM_LEN + 1, GFP_ATOMIC))
+			// {
+			// 	mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
+			// 	return false;
+			// }
 		}
 	}
+
+	// skb->tail -= 4;
+	// skb->len -= 4;
 
 
 	if (!check_bad_addr(old_saddr) || !check_bad_addr(old_daddr))
@@ -2032,7 +2077,6 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 	addr1 = get_local_addr1();
 	addr2 = get_local_addr2();
 
-	struct mpip_cm send_mpip_cm;
 
 	send_mpip_cm.len = send_cm[0] = MPIP_CM_LEN;
 
@@ -2071,7 +2115,7 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
     							send_mpip_cm.session_id, protocol, skb->len, is_short);
     }
 
-    path_stat_id = get_path_stat_id(dst_node_id, &delay);
+    path_stat_id = get_path_stat_id(dst_node_id, send_mpip_cm.session_id, &delay);
 
     send_mpip_cm.path_id = send_cm[4] = path_id;
     send_mpip_cm.path_stat_id = send_cm[5] = path_stat_id;
@@ -2147,7 +2191,11 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 	}
 
 	print_mpip_cm(&send_mpip_cm);
+
+
 	skb_put(skb, MPIP_CM_LEN + 1);
+	
+	// skb_put(skb, 4);
 
 
 	if (send_mpip_cm.session_id > 0)
@@ -2168,7 +2216,9 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 
 		if (sysctl_mpip_use_tcp || !inited || origin)
 		{
+			// int tcphlen;
 			tcph = tcp_hdr(skb); //this fixed the problem
+			iph = ip_hdr(skb);
 			if (!tcph)
 			{
 				printk("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
@@ -2183,17 +2233,18 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 				tcph->dest = new_dport;
 			}
 
-			tcph->check = 0;
-			tcph->check = csum_tcpudp_magic(old_saddr, old_daddr,
-					skb->len, protocol,
-					csum_partial((char *)tcph, skb->len, 0));
+			// iphdrlen = ip_hdrlen(skb);
+			// tcphlen = ntohs(iph->tot_len) - iphdrlen;
+			// tcph->check = 0;
+			// tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+			// 		tcphlen, protocol,
+			// 		csum_partial((char *)tcph, tcphlen, 0));     //pay attention here!!!
 
-			skb->ip_summed = CHECKSUM_UNNECESSARY;
+			// skb->ip_summed = CHECKSUM_NONE;
 		}
 		else
 		{
 			unsigned char *tmp = kzalloc(sizeof(struct iphdr), GFP_ATOMIC);
-
 			if (!tmp)
 			{
 				printk("tmp == NULL\n");
@@ -2223,22 +2274,23 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 				udph->dest = new_dport;
 			}
 
-			//udph->len = skb->len - iph->ihl * 4;
 
-			udph->len = htons(skb->len - iph->ihl * 4);
-			udph->check = 0;
-			udph->check = csum_tcpudp_magic(old_saddr, old_daddr,
-					skb->len, protocol,
-					csum_partial((char *)udph, skb->len, 0));
-			skb->ip_summed = CHECKSUM_UNNECESSARY;
+			// iphdrlen = ip_hdrlen(skb);
+			// udph->len = htons(skb->len-iphdrlen);
+			// udph->check = 0;
+			// udph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+			// 		ntohs(udph->len), protocol, 
+			// 		csum_partial((unsigned char *)udph, ntohs(udph->len), 0));
+			// skb->ip_summed = CHECKSUM_NONE;
 
-			mpip_log("sending: %d, %d, %d, %d, %d, %s, %s, %d\n", ip_hdr(skb)->id, ntohs(udph->len),
-							ip_hdr(skb)->protocol, sport, dport, __FILE__, __FUNCTION__,
-							__LINE__);
+			// mpip_log("sending: %d, %d, %d, %d, %d, %s, %s, %d\n", ip_hdr(skb)->id, ntohs(udph->len),
+			// 				ip_hdr(skb)->protocol, sport, dport, __FILE__, __FUNCTION__,
+			// 				__LINE__);
 		}
 	}
 	else if(protocol == IPPROTO_UDP)
 	{
+		struct iphdr *iph = ip_hdr(skb);
 		udph = udp_hdr(skb); //this fixed the problem
 		if (!udph)
 		{
@@ -2254,14 +2306,21 @@ bool insert_mpip_cm(struct sk_buff *skb, __be32 old_saddr, __be32 old_daddr,
 		mpip_log("UDP: %d, %d, %s, %s, %d\n", ntohs(udph->len), ip_hdr(skb)->protocol,
 					__FILE__, __FUNCTION__,	__LINE__);
 
-		udph->len = htons(ntohs(udph->len) + MPIP_CM_LEN + 1);
-		udph->check = 0;
-		udph->check = csum_tcpudp_magic(old_saddr, old_daddr,
-				skb->len, protocol, csum_partial((char *)udph, skb->len, 0));
-		skb->ip_summed = CHECKSUM_UNNECESSARY;
+		// if ((flags < 1) || ((flags > 1) && (skb->len <= 176)))
+		// {
+		// 	udph->len = htons(ntohs(udph->len) + MPIP_CM_LEN + 1);
+		// }
+		// udph->len = htons(skb->len - iph->ihl * 4);
+		// iphdrlen = ip_hdrlen(skb);
+		// udph->len = htons(ntohs(iph->tot_len)-iphdrlen);
+		// udph->check = 0;
+		// udph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+		// 		ntohs(udph->len), protocol, 
+		// 		csum_partial((unsigned char *)udph, ntohs(udph->len), 0));
+		// skb->ip_summed = CHECKSUM_NONE;
 
-		mpip_log("UDP: %d, %d, %s, %s, %d\n", ntohs(udph->len), ip_hdr(skb)->protocol,
-					__FILE__, __FUNCTION__,	__LINE__);
+	// 	mpip_log("UDP: %d, %d, %s, %s, %d\n", ntohs(udph->len), ip_hdr(skb)->protocol,
+	// 				__FILE__, __FUNCTION__,	__LINE__);
 	}
 
 	return true;
@@ -2472,9 +2531,9 @@ int process_mpip_cm(struct sk_buff *skb)
 	process_addr_notified_event(rcv_mpip_cm.node_id, rcv_mpip_cm.flags, rcv_mpip_cm.addr1, rcv_mpip_cm.addr2);
 
 	add_working_ip(rcv_mpip_cm.node_id, iph->saddr, sport, rcv_mpip_cm.session_id, iph->protocol);
-	add_path_stat(rcv_mpip_cm.node_id, rcv_mpip_cm.path_id);
+	add_path_stat(rcv_mpip_cm.node_id, rcv_mpip_cm.session_id, rcv_mpip_cm.path_id);
 
-	update_path_stat_delay(rcv_mpip_cm.node_id, rcv_mpip_cm.path_id, rcv_mpip_cm.timestamp);
+	update_path_stat_delay(rcv_mpip_cm.node_id, rcv_mpip_cm.session_id, rcv_mpip_cm.path_id, rcv_mpip_cm.timestamp);
 	update_path_delay(rcv_mpip_cm.path_stat_id, rcv_mpip_cm.delay);
 
 	socket_session = get_receiver_session(static_node_id,
@@ -2590,32 +2649,32 @@ int process_mpip_cm(struct sk_buff *skb)
 
 	iph = ip_hdr(skb);
 
+
+
 	if(iph->protocol==IPPROTO_TCP)
 	{
+		tcph = tcp_hdr(skb); //this fixed the problem
+		// skb->csum = skb_checksum(skb, skb_transport_offset(skb), skb->len - skb_transport_offset(skb) ,0);
 		tcph->check = 0;
 		tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
-										skb->len, iph->protocol,
-										csum_partial((char *)tcph, skb->len, 0));
+										skb->len-iph->ihl*4, iph->protocol,
+										csum_partial((unsigned char *)tcph, skb->len-iph->ihl * 4, 0));
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 		ip_send_check(iph);
 	}
 	else if(iph->protocol==IPPROTO_UDP)
 	{
+
+		udph = udp_hdr(skb);
+		udph->len = htons(skb->len - iph->ihl*4);
 		mpip_log("receiving: %d, %d, %d, %s, %s, %d\n", ip_hdr(skb)->id, ntohs(udph->len),
-												ip_hdr(skb)->protocol,  __FILE__, __FUNCTION__,
-												__LINE__);
-
-		udph->len = htons(ntohs(udph->len) - MPIP_CM_LEN - 1);
-
-		mpip_log("receiving: %d, %d, %d, %s, %s, %d\n", ip_hdr(skb)->id, ntohs(udph->len),
-												ip_hdr(skb)->protocol,  __FILE__, __FUNCTION__,
-												__LINE__);
-
+										ip_hdr(skb)->protocol,  __FILE__, __FUNCTION__,
+										__LINE__);
 		udph->check = 0;
 		udph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
-									   skb->len, iph->protocol,
-									   csum_partial((char *)udph, skb->len, 0));
+									    skb->len-iph->ihl*4, iph->protocol,
+									    csum_partial((unsigned char *)udph, skb->len-iph->ihl*4, 0));
 		skb->ip_summed = CHECKSUM_UNNECESSARY;
 
 		ip_send_check(iph);

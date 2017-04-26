@@ -276,6 +276,7 @@ struct socket_session_table
 struct path_stat_table
 {
 	unsigned char		node_id[MPIP_CM_NODE_ID_LEN]; /* sender's node id*/
+	unsigned char 		session_id;
 	unsigned char		path_id; /* path id: 0,1,2,3,4....*/
 	__s32     			delay;
 	bool				feedbacked;
@@ -395,11 +396,11 @@ struct working_ip_table *find_working_ip(unsigned char *node_id, __be32 addr,
 unsigned char * find_node_id_in_working_ip(__be32 addr, __be16 port,
 		unsigned int protocol);
 
-struct path_stat_table *find_path_stat(unsigned char *node_id, unsigned char path_id);
+struct path_stat_table *find_path_stat(unsigned char *node_id, unsigned char session_id, unsigned char path_id);
 
-int add_path_stat(unsigned char *node_id, unsigned char path_id);
+int add_path_stat(unsigned char *node_id, unsigned char session_id, unsigned char path_id);
 
-int update_path_stat_delay(unsigned char *node_id, unsigned char path_id, u32 timestamp);
+int update_path_stat_delay(unsigned char *node_id, unsigned char session_id, unsigned char path_id, u32 timestamp);
 
 int update_path_delay(unsigned char path_id, __s32 delay);
 
@@ -451,7 +452,9 @@ unsigned char find_fastest_path_id(unsigned char *node_id,
 			   __be16 origin_dport, unsigned char session_id,
 			   unsigned int protocol, unsigned int len, bool is_short);
 
-unsigned char find_earliest_path_stat_id(unsigned char *dest_node_id, __s32 *delay);
+unsigned char find_earliest_path_stat_id(unsigned char *dest_node_id, unsigned char session_id, __s32 *delay);
+
+// unsigned char get_path_stat_id(unsigned char *dest_node_id, unsigned char session_id, __s32 *delay)
 
 struct socket_session_table *get_sender_session(__be32 saddr, __be16 sport,
 							 __be32 daddr, __be16 dport, unsigned int protocol);

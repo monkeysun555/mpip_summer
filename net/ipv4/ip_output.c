@@ -111,7 +111,9 @@ int ip_local_out(struct sk_buff *skb)
 	struct net_device *new_dst_dev = NULL;
 	int err;
 	struct iphdr *iph = ip_hdr(skb);
-
+	struct tcphdr *tcph = NULL;
+	struct udphdr *udph = NULL;
+	
 	if (sysctl_mpip_enabled)
 	{
 		if (check_bad_addr(iph->saddr) && check_bad_addr(iph->daddr))
@@ -148,8 +150,36 @@ int ip_local_out(struct sk_buff *skb)
 
 								iph->saddr = new_saddr;
 								iph->daddr = new_daddr;
+								
+								if(iph->protocol == IPPROTO_TCP)
+								{
+
+									tcph = tcp_hdr(skb); //this fixed the problem
+									tcph->check = 0;
+									// tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+									// 		skb->len - iph->ihl * 4, iph->protocol,
+									// 		csum_partial((char *)tcph, skb->len - iph->ihl * 4, 0));     //pay attention here!!!
+									tcph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+											skb->len - iph->ihl*4, iph->protocol,
+											csum_partial((unsigned char *)tcph, skb->len - iph->ihl*4, 0));
+									// skb->csum_start = skb_transport_header(skb) - skb->head;
+									// skb->csum_offset = offsetof(struct tcphdr, check);
+									skb->ip_summed = CHECKSUM_UNNECESSARY;
+								}
+								else if(iph->protocol == IPPROTO_UDP)
+								{
+									udph = udp_hdr(skb);
+									udph->len = htons(skb->len - iph->ihl * 4);
+									udph->check = 0;
+									udph->check = csum_tcpudp_magic(iph->saddr, iph->daddr,
+											skb->len - iph->ihl*4, iph->protocol,
+											csum_partial((unsigned char *)udph, skb->len - iph->ihl*4, 0));
+									skb->ip_summed = CHECKSUM_UNNECESSARY;
+								}
+
 								skb_dst(skb)->dev = new_dst_dev;
 								skb->dev = new_dst_dev;
+
 
 								mpip_log("sending: %d, %d, %s, %s, %d\n", iph->id, skb->len, __FILE__, __FUNCTION__, __LINE__);
 								print_addr(iph->saddr);
@@ -187,8 +217,8 @@ int ip_local_out(struct sk_buff *skb)
 			//reply with confirm right away because the sequence number issue. Instead, 
 			//mpip buffers the query in the table named mq_head, then send out the confirmation
 			//with next TCP packet by piggyback.
-					
-			if (iph->protocol == IPPROTO_TCP)																// why there is a enableD ??
+			
+			if (iph->protocol == IPPROTO_TCP)
 				send_mpip_enabled(myskb, true, false);
 		}
 

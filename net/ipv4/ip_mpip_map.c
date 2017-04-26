@@ -417,8 +417,8 @@ struct working_ip_table *find_working_ip(unsigned char *node_id, __be32 addr,
 	{
 		if (is_equal_node_id(node_id, working_ip->node_id) &&
 				(addr == working_ip->addr) &&
-				(port == working_ip->port) 
-				// && (protocol == working_ip->protocol)
+				(port == working_ip->port)
+				&&(protocol == working_ip->protocol)
 				)
 		{
 			return working_ip;
@@ -551,7 +551,6 @@ void process_addr_notified_event(unsigned char *node_id, unsigned char flags, __
 	}
 
 	mpip_log("%s, %d\n", __FILE__, __LINE__);
-
 	print_addr(addr1);
 	print_addr(addr2);
 
@@ -569,53 +568,35 @@ void process_addr_notified_event(unsigned char *node_id, unsigned char flags, __
 	// 	}
 	// }
 
-	// list_for_each_entry_safe(working_ip, tmp_ip, &wi_head, list)
-	// {
-	// 	if (is_equal_node_id(node_id, working_ip->node_id))
-	// 	{
-	// 		print_addr(working_ip->addr);
-	// 		mpip_log("ip\n");
-	// 	}
-	// }
-
-
 	list_for_each_entry_safe(path_info, tmp_info, &pi_head, list)
 	{
 		if (is_equal_node_id(node_id, path_info->node_id))
 		{
 //			mpip_log("%s, %d\n", __FILE__, __LINE__);
 			if(path_info->daddr != addr1 && path_info->daddr != addr2){
+
 				list_for_each_entry_safe(path_stat, tmp_stat, &ps_head, list)
 				{
 					if (is_equal_node_id(node_id, path_stat->node_id))
 					{
-						mpip_log("%s, %d\n", __FILE__, __LINE__);
 						if(path_stat->path_id == path_info->path_id){
 							list_del(&(path_stat->list));
 							kfree(path_stat);
 						}
 					}
 				}
+
 				list_del(&(path_info->list));
 				kfree(path_info);
 			}
 		}
 	}
 
-	list_for_each_entry_safe(path_info, tmp_info, &pi_head, list)
-	{
-		if (is_equal_node_id(node_id, path_info->node_id))
-		{
-			print_addr(path_info->daddr);
-			mpip_log("path_info\n");
-		}
-	}
-
-
+	
 }
 
 //when receiving a packet, update the one way delay information of the incoming path
-int update_path_stat_delay(unsigned char *node_id, unsigned char path_id, u32 timestamp)
+int update_path_stat_delay(unsigned char *node_id, unsigned char session_id, unsigned char path_id, u32 timestamp)
 {
 /* todo: need sanity checks, leave it for now */
 	/* todo: need locks */
@@ -623,13 +604,13 @@ int update_path_stat_delay(unsigned char *node_id, unsigned char path_id, u32 ti
     struct timespec tv;
 	u32  midtime;
 
-	if (!node_id || (path_id == 0))
+	if (!node_id || (path_id == 0) || session_id == 0 )
 		return 0;
 
 	if (node_id[0] == node_id[1])
 		return 0;
 
-	path_stat = find_path_stat(node_id, path_id);
+	path_stat = find_path_stat(node_id, session_id, path_id);
 	if (path_stat)
 	{
 		getnstimeofday(&tv);
@@ -1193,10 +1174,10 @@ int update_path_info(unsigned char session_id)
 			tmp = max_delay - path_info->delay;
 
 
-		// __be32 ip1 = convert_addr(172, 21, 1, 3);
-		// __be32 ip2 = convert_addr(172, 21, 2, 3);
-		// __be32 ip3 = convert_addr(172, 21, 1, 2);
-		// __be32 ip4 = convert_addr(172, 21, 2, 2);
+		// __be32 ip1 = convert_addr(171, 21, 1, 2);
+		// __be32 ip2 = convert_addr(172, 21, 2, 2);
+		// __be32 ip3 = convert_addr(172, 21, 1, 3);
+		// __be32 ip4 = convert_addr(172, 21, 2, 3);
 
 		// if ((path_info->saddr == ip1) && (path_info->daddr == ip4) ||
 		// 	(path_info->saddr == ip2) && (path_info->daddr == ip3))
@@ -1241,13 +1222,17 @@ int update_path_info(unsigned char session_id)
 				path_info->bw -= sysctl_mpip_bw_step;
 		}
 
-		__be32 ip1 = convert_addr(172, 21, 1, 2);  //eth0 inside
-		__be32 ip2 = convert_addr(172, 21, 2, 2);  //eth1 inside
-		__be32 ip3 = convert_addr(172, 21, 1, 3);  //eth0 outside
-		__be32 ip4 = convert_addr(172, 21, 2, 3);  //eth1 outside
+		__be32 ip1 = convert_addr(216, 165, 113, 122);  //eth0_inside
+		__be32 ip2 = convert_addr(172, 21, 2, 2);  //eth1_inside
+		__be32 ip3 = convert_addr(216, 165, 113, 123);  //eth0_outside
+		__be32 ip4 = convert_addr(172, 21, 2, 3);  //eth1_outside
+		__be32 ip5 = convert_addr(216, 165, 113, 223);  //eth0 lenovo
+		__be32 ip6 = convert_addr(172, 21, 2, 20);  // eth1 lenovo
 
-		if ((path_info->saddr == ip4) && (path_info->daddr == ip1) ||
-			(path_info->saddr == ip3) && (path_info->daddr == ip2))
+		 if ((path_info->saddr == ip1) && (path_info->daddr == ip4) ||
+			(path_info->saddr == ip2) && (path_info->daddr == ip3) ||
+			(path_info->saddr == ip1) && (path_info->daddr == ip6) ||
+			(path_info->saddr == ip2) && (path_info->daddr == ip5))
 		{
 			path_info->bw = 0;
 		}
@@ -1294,17 +1279,18 @@ bool check_path_info_status(struct sk_buff *skb,
 
 
 //find path_stat_table from ps_head
-struct path_stat_table *find_path_stat(unsigned char *node_id, unsigned char path_id)
+struct path_stat_table *find_path_stat(unsigned char *node_id, unsigned char session_id, unsigned char path_id)
 {
 	struct path_stat_table *path_stat;
 
-	if (!node_id || (path_id == 0))
+	if (!node_id || (path_id == 0) || session_id == 0)
 		return NULL;
 
 	list_for_each_entry(path_stat, &ps_head, list)
 	{
 		if (is_equal_node_id(node_id, path_stat->node_id) &&
-			(path_stat->path_id == path_id))
+			(path_stat->path_id == path_id) && 
+			path_stat->session_id == session_id)
 		{
 			return path_stat;
 		}
@@ -1314,11 +1300,11 @@ struct path_stat_table *find_path_stat(unsigned char *node_id, unsigned char pat
 }
 
 //add a path_stat_table into ps_head
-int add_path_stat(unsigned char *node_id, unsigned char path_id)
+int add_path_stat(unsigned char *node_id, unsigned char session_id, unsigned char path_id)
 {
 	struct path_stat_table *item = NULL;
 
-	if (!node_id || (path_id == 0))
+	if (!node_id || (path_id == 0) || session_id == 0)
 		return 0;
 
 	if (node_id[0] == node_id[1])
@@ -1326,7 +1312,7 @@ int add_path_stat(unsigned char *node_id, unsigned char path_id)
 		return 0;
 	}
 
-	if (find_path_stat(node_id, path_id))
+	if (find_path_stat(node_id, session_id, path_id))
 		return 0;
 
 
@@ -1335,6 +1321,7 @@ int add_path_stat(unsigned char *node_id, unsigned char path_id)
 
 	memcpy(item->node_id, node_id, MPIP_CM_NODE_ID_LEN);
 	item->path_id = path_id;
+	item->session_id = session_id;
 	item->delay = 0;
 	item->feedbacked = false;
 	item->fbjiffies = jiffies;
@@ -1895,20 +1882,20 @@ bool init_mpip_tcp_connection(struct sk_buff *skb,
 			}
 			else
 			{
-				if ((daddr1 != 0) && !find_path_info(local_addr->addr, daddr1, sport + 1, dport, session_id))
-				{
+				// if ((daddr1 != 0) && !find_path_info(local_addr->addr, daddr1, sport + 1, dport, session_id))
+				// {
 					printk("%d, %d, %d: %s, %s, %d\n", session_id, sport + 1, dport, __FILE__, __FUNCTION__, __LINE__);
 					print_addr_1(local_addr->addr);
 					print_addr_1(daddr1);
 
 					send_mpip_syn(skb, local_addr->addr, daddr1,
 							sport + 1, dport, true, false, session_id);
-				}
+				// }
 			}
 		}
 		else
 		{
-			if(check_bad_addr(local_addr->addr)){
+			if(check_bad_addr(local_addr->addr)) {
 				if ((daddr1 != 0) && !find_path_info(local_addr->addr, daddr1, sport + 2, dport, session_id))
 				{
 					printk("%d, %d, %d: %s, %s, %d\n", session_id, sport + 2, dport, __FILE__, __FUNCTION__, __LINE__);
@@ -2064,7 +2051,7 @@ int add_path_info_tcp(int id, unsigned char *node_id, __be32 saddr, __be32 daddr
 	item->path_id = (static_path_id > 250) ? 1 : ++static_path_id;
 	item->status = 0;
 
-	mpip_log("%d, %d, %d, %d: %s, %s, %d\n", id, session_id, sport, dport, __FILE__, __FUNCTION__, __LINE__);
+	mpip_log("%d, %d, %d, %d, %d: %s, %s, %d\n", id, static_path_id, session_id, sport, dport, __FILE__, __FUNCTION__, __LINE__);
 //	print_addr_1(saddr);
 //	print_addr_1(daddr);
 
@@ -2419,6 +2406,24 @@ unsigned char find_fastest_path_id(unsigned char *node_id,
 //	{
 //		is_short = false;
 //	}
+	
+	// if (origin_daddr == 22222)
+	// {
+	//     f_path = find_lowest_delay_path(node_id, session_id);
+
+	// 	   if (f_path)
+	// 	   {
+	// 		   *saddr = f_path->saddr;
+	// 		   *daddr = f_path->daddr;
+	// 		   *sport = f_path->sport;
+	// 		   *dport = f_path->dport;
+	// 		   f_path->pktcount += 1;
+	// 		   f_path_id = f_path->path_id;
+
+	// 	       goto ret;
+
+	//     }
+	// }
 
 	//for ack packet, use the path with lowest delay
 	if (is_short && sysctl_mpip_skype)
@@ -2552,7 +2557,7 @@ void send_mpip_hb(struct sk_buff *skb, unsigned char session_id)
 }
 
 //decide which path to feedback
-unsigned char find_earliest_path_stat_id(unsigned char *dest_node_id, __s32 *delay)
+unsigned char find_earliest_path_stat_id(unsigned char *dest_node_id, unsigned char session_id, __s32 *delay)
 {
 	struct path_stat_table *path_stat;
 	struct path_stat_table *e_path_stat;
@@ -2561,13 +2566,14 @@ unsigned char find_earliest_path_stat_id(unsigned char *dest_node_id, __s32 *del
 //	int totalrcv = 0;
 //	int max_rcvc = 0;
 
-	if (!dest_node_id)
+	if (!dest_node_id || session_id <= 0)
 		return 0;
 
 
 	list_for_each_entry(path_stat, &ps_head, list)
 	{
-		if (!is_equal_node_id(path_stat->node_id, dest_node_id))
+		if (!is_equal_node_id(path_stat->node_id, dest_node_id) ||
+			path_stat->session_id != session_id)
 		{
 			continue;
 		}
@@ -2625,13 +2631,16 @@ void get_available_local_addr(void)
 		if (strstr(dev->name, "lo"))
 			continue;
 
-		if (!netif_running(dev)||!netif_carrier_ok(dev))
+		if (strstr(dev->name, "eth2"))
+			continue;
+
+		if (!netif_running(dev)|| !netif_carrier_ok(dev))
 		{
 			if (dev->ip_ptr && dev->ip_ptr->ifa_list)
-			// {
+			{
 				mpip_log( "un-active: %lu  ", dev->state);
-			// 	print_addr(__FUNCTION__, dev->ip_ptr->ifa_list->ifa_address);
-			// }
+				// print_addr(__FUNCTION__, dev->ip_ptr->ifa_list->ifa_address);
+			}
 
 			continue;
 		}
@@ -2658,7 +2667,7 @@ void update_addr_change(unsigned long event)
 	__be32 addr1 =0, addr2 = 0;
 	struct local_addr_table *local_addr;
 	struct local_addr_table *tmp_addr;
-	struct working_ip_table *working_ip;
+	// struct working_ip_table *working_ip;
 	struct path_info_table *path_info;
 	struct path_info_table *tmp_info;
 	struct path_stat_table *path_stat;
@@ -2683,39 +2692,37 @@ void update_addr_change(unsigned long event)
 
 	addr1 = get_local_addr1();
 	addr2 = get_local_addr2();
-
 	print_addr(addr1);
 	print_addr(addr2);
-	
+
 	// if(event == NETDEV_DOWN){
+	// 	mpip_log("down\n");
 	// 	list_for_each_entry_safe(path_info, tmp_info, &pi_head, list)
 	// 	{
-	// 		if(path_info->saddr != addr1 && path_info->saddr != addr2){
-				
+	// 		if((path_info->saddr != addr1) && (path_info->saddr != addr2)) {	
 	// 			// list_del(&(path_info->list));
 	// 			// kfree(path_info);
 	// 			path_info->bw = 0;
 	// 		}
 	// 	}
-
+		
 	// 	mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
 
 	// }
 
-	// if(event == NETDEV_UP){	
+	// if(event == NETDEV_UP){
 	if (!check_bad_addr(addr1) || !check_bad_addr(addr2)){
 		mpip_log("down\n");
 		list_for_each_entry_safe(path_info, tmp_info, &pi_head, list)
-		{	
-	 		if(path_info->saddr != addr1 && path_info->saddr != addr2){
+		{
+			if((path_info->saddr != addr1) && (path_info->saddr != addr2)) {	
 				list_del(&(path_info->list));
 				kfree(path_info);
 			}
 		}
-
 		list_for_each_entry_safe(path_stat, tmp_stat, &ps_head, list)
 		{
-			if(path_info->saddr != addr1 && path_info->saddr != addr2){
+			if((path_info->saddr != addr1) && (path_info->saddr != addr2)) {	
 				list_del(&(path_stat->list));
 				kfree(path_stat);
 			}
@@ -2723,10 +2730,10 @@ void update_addr_change(unsigned long event)
 
 		mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
 	}
-	else{
+	else {
 		mpip_log("up\n");
 		list_for_each_entry_safe(path_info, tmp_info, &pi_head, list)
-		{	
+		{
 			list_del(&(path_info->list));
 			kfree(path_info);
 		}
@@ -2738,8 +2745,11 @@ void update_addr_change(unsigned long event)
 		}
 
 		mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
-	}
+	}	
+
+
 	// }
+
 	// list_for_each_entry(working_ip, &wi_head, list)
 	// {
 	// 	list_del(&(working_ip->list));
@@ -2749,6 +2759,8 @@ void update_addr_change(unsigned long event)
 	// }
 
 	
+
+
 	mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
 }
 
@@ -2762,7 +2774,7 @@ struct net_device *find_dev_by_addr(__be32 addr)
 		if (strstr(dev->name, "lo"))
 			continue;
 
-		if (!netif_running(dev)||!netif_carrier_ok(dev))
+		if (!netif_running(dev)||!(netif_carrier_ok(dev)))
 			continue;
 
 		if (dev->ip_ptr && dev->ip_ptr->ifa_list)
