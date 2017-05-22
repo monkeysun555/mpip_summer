@@ -1197,7 +1197,7 @@ int update_path_info(unsigned char session_id)
 		return 1;
 	}
 
-	path_count = 2;
+	// path_count = 2;
 	int averatio = 1000 / path_count;
 
 	list_for_each_entry(path_info, &pi_head, list)
@@ -1216,34 +1216,35 @@ int update_path_info(unsigned char session_id)
 		}
 		else
 		{
-			if (path_info->bw <= sysctl_mpip_bw_step)
+			if (path_info->bw <= 100)
 				path_info->bw = 100;
 			else
 				path_info->bw -= sysctl_mpip_bw_step;
 		}
+		// __be32 ip1 = convert_addr(172, 21, 3, 2);  //eth1 inside
+		__be32 ip1 = convert_addr(216, 165, 113, 122);  //eth0 inside
+		__be32 ip2 = convert_addr(172, 21, 2, 2);  //eth1 inside
+		// __be32 ip3 = convert_addr(172, 21, 3, 3);  //eth1 inside
+		__be32 ip3 = convert_addr(216, 165, 113, 123);  //eth0 outside
+		__be32 ip4 = convert_addr(172, 21, 2, 3);  //eth1 outside
+		__be32 ip5 = convert_addr(216, 165, 113, 223); //eth0 lenovo
+		__be32 ip6 = convert_addr(172, 21, 2 , 20);
 
-		__be32 ip1 = convert_addr(216, 165, 113, 122);  //eth0_inside
-		__be32 ip2 = convert_addr(172, 21, 2, 2);  //eth1_inside
-		__be32 ip3 = convert_addr(216, 165, 113, 123);  //eth0_outside
-		__be32 ip4 = convert_addr(172, 21, 2, 3);  //eth1_outside
-		__be32 ip5 = convert_addr(216, 165, 113, 223);  //eth0 lenovo
-		__be32 ip6 = convert_addr(172, 21, 2, 20);  // eth1 lenovo
-
-		 if ((path_info->saddr == ip1) && (path_info->daddr == ip4) ||
-			(path_info->saddr == ip2) && (path_info->daddr == ip3) ||
-			(path_info->saddr == ip1) && (path_info->daddr == ip6) ||
-			(path_info->saddr == ip2) && (path_info->daddr == ip5))
+		if ((path_info->saddr == ip4) && (path_info->daddr == ip1) ||
+			(path_info->saddr == ip3) && (path_info->daddr == ip2) ||
+			(path_info->saddr == ip4) && (path_info->daddr == ip5) ||
+			(path_info->saddr == ip3) && (path_info->daddr == ip6))
 		{
 			path_info->bw = 0;
 		}
-		//else if (path_info->saddr == ip1)
-		//{
-		//	path_info->bw = 1000;
-		//}
-		//else if (path_info->saddr == ip2)
-		//{
-		//	path_info->bw = 500;
-		//}
+		// else if (path_info->saddr == ip3)
+		// {
+		// 	path_info->bw = 500;
+		// }
+		// else if (path_info->saddr == ip4)
+		// {
+		// 	path_info->bw = 500;
+		// }
 	}
 
 	return 1;
@@ -1708,6 +1709,8 @@ int add_to_tcp_skb_buf(struct sk_buff *skb, unsigned char session_id)
 
 //				bool come = false;
 //				int come_buf_count = socket_session->buf_count;
+				rcu_read_lock();
+
 recursive:
 				if (socket_session->buf_count > 0)
 				{
@@ -1742,6 +1745,7 @@ recursive:
 						}
 					}
 				}
+				// rcu_read_unlock();
 
 //				if (come)
 //				{
@@ -1762,6 +1766,7 @@ recursive:
 			int count = socket_session->buf_count;
 			if (count == MPIP_TCP_BUF_MAX_LEN)
 			{
+				rcu_read_lock();
 				for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
 				{
 					if (socket_session->tcp_buf[i].seq == 0)
@@ -1798,11 +1803,12 @@ recursive:
 				dst_input(skb);
 
 				socket_session->next_seq = max_seq;
-
+				// rcu_read_unlock();
 				goto success;
 			}
 			else
 			{
+				rcu_read_lock();
 				for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
 				{
 					if (socket_session->tcp_buf[i].seq == 0)
@@ -1815,23 +1821,26 @@ recursive:
 								socket_session->buf_count,
 								ntohl(tcph->seq), socket_session->next_seq,
 								__FILE__, __LINE__);
-
+						// rcu_read_unlock();
+						kfree_skb(skb); 
 						goto success;
 					}
 				}
-
+				// rcu_read_unlock();				
+				// goto fail;
 			}
 		}
 	}
 
 
-success:
-//	rcu_read_unlock();
-	return 1;
 fail:
-//	rcu_read_unlock();
+	rcu_read_unlock();
 	mpip_log("Fail: %s, %d\n", __FILE__, __LINE__);
 	return 0;
+
+success:
+	rcu_read_unlock();
+	return 1;
 }
 
 //find path_inf_table from pi_head.
@@ -2233,7 +2242,7 @@ struct path_info_table *find_lowest_delay_path(unsigned char *node_id,
 	{
 		if (!is_equal_node_id(path_info->node_id, node_id) ||
 				path_info->session_id != session_id ||
-				path_info->status != 0)
+				path_info->status != 0 || path_info->bw ==0 )
 		{
 			continue;
 		}
@@ -2407,42 +2416,42 @@ unsigned char find_fastest_path_id(unsigned char *node_id,
 //		is_short = false;
 //	}
 	
-	// if (origin_daddr == 22222)
-	// {
-	//     f_path = find_lowest_delay_path(node_id, session_id);
+	if ((origin_daddr != 5001 || origin_daddr != 5201 || is_short) && sysctl_mpip_skype)
+	{
+	    f_path = find_lowest_delay_path(node_id, session_id);
 
-	// 	   if (f_path)
-	// 	   {
-	// 		   *saddr = f_path->saddr;
-	// 		   *daddr = f_path->daddr;
-	// 		   *sport = f_path->sport;
-	// 		   *dport = f_path->dport;
-	// 		   f_path->pktcount += 1;
-	// 		   f_path_id = f_path->path_id;
+		   if (f_path)
+		   {
+			   *saddr = f_path->saddr;
+			   *daddr = f_path->daddr;
+			   *sport = f_path->sport;
+			   *dport = f_path->dport;
+			   f_path->pktcount += 1;
+			   f_path_id = f_path->path_id;
 
-	// 	       goto ret;
+		       goto ret;
 
-	//     }
-	// }
+	    }
+	}
 
 	//for ack packet, use the path with lowest delay
-	if (is_short && sysctl_mpip_skype)
-	{
-		f_path = find_lowest_delay_path(node_id, session_id);
+	// if (is_short && sysctl_mpip_skype)
+	// {
+	// 	f_path = find_lowest_delay_path(node_id, session_id);
 
-		if (f_path)
-		{
-			*saddr = f_path->saddr;
-			*daddr = f_path->daddr;
-			*sport = f_path->sport;
-			*dport = f_path->dport;
-			f_path->pktcount += 1;
-			f_path_id = f_path->path_id;
+	// 	if (f_path)
+	// 	{
+	// 		*saddr = f_path->saddr;
+	// 		*daddr = f_path->daddr;
+	// 		*sport = f_path->sport;
+	// 		*dport = f_path->dport;
+	// 		f_path->pktcount += 1;
+	// 		f_path_id = f_path->path_id;
 
-			goto ret;
+	// 		goto ret;
 
-		}
-	}
+	// 	}
+	// }
 
 
 	//if comes here, it means all paths have been probed
@@ -2631,7 +2640,7 @@ void get_available_local_addr(void)
 		if (strstr(dev->name, "lo"))
 			continue;
 
-		if (strstr(dev->name, "eth2"))
+		if (strstr(dev->name, "eth0"))
 			continue;
 
 		if (!netif_running(dev)|| !netif_carrier_ok(dev))
@@ -2713,6 +2722,7 @@ void update_addr_change(unsigned long event)
 	// if(event == NETDEV_UP){
 	if (!check_bad_addr(addr1) || !check_bad_addr(addr2)){
 		mpip_log("down\n");
+		rcu_read_lock();
 		list_for_each_entry_safe(path_info, tmp_info, &pi_head, list)
 		{
 			if((path_info->saddr != addr1) && (path_info->saddr != addr2)) {	
@@ -2727,11 +2737,13 @@ void update_addr_change(unsigned long event)
 				kfree(path_stat);
 			}
 		}
+		rcu_read_unlock();
 
 		mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
 	}
 	else {
 		mpip_log("up\n");
+		rcu_read_lock();
 		list_for_each_entry_safe(path_info, tmp_info, &pi_head, list)
 		{
 			list_del(&(path_info->list));
@@ -2743,6 +2755,7 @@ void update_addr_change(unsigned long event)
 			list_del(&(path_stat->list));
 			kfree(path_stat);
 		}
+		rcu_read_unlock();
 
 		mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
 	}	

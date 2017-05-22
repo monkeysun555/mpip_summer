@@ -2452,7 +2452,7 @@ int process_mpip_cm(struct sk_buff *skb)
 
 //		if ((odport > 6000) && is_original_path(rcv_mpip_cm.node_id,
 //				iph->daddr, iph->saddr, tcph->dest, tcph->source, rcv_mpip_cm.session_id))
-		if (((osport == 5201)||(osport == 5001)||(osport == 22)) && is_original_path(rcv_mpip_cm.node_id,
+		if (((osport == 5201)||(osport == 5001)||(osport == 22)||(osport == 3128)) && is_original_path(rcv_mpip_cm.node_id,
 							iph->daddr, iph->saddr, tcph->dest, tcph->source, rcv_mpip_cm.session_id))
 		{
 			if (sysctl_mpip_use_tcp)
