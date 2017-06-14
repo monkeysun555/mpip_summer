@@ -36,8 +36,8 @@
 #define MPIP_CM_NODE_ID_LEN 2
 
 //minimum/maximum buffer size of the out of order buffer
-#define MPIP_TCP_BUF_MIN_LEN 5
-#define MPIP_TCP_BUF_MAX_LEN 5
+#define MPIP_TCP_BUF_MIN_LEN 200
+#define MPIP_TCP_BUF_MAX_LEN 200
 
 //different flags
 

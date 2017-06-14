@@ -2688,7 +2688,10 @@ int process_mpip_cm(struct sk_buff *skb)
 
 msg_pkt:
 	if (rcv_mpip_cm.flags > 1)
+	{
+		kfree_skb(skb);
 		return 2;
+	}
 
 nor_pkt:
 	return 1;

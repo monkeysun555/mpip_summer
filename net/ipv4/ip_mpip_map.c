@@ -574,7 +574,10 @@ void process_addr_notified_event(unsigned char *node_id, unsigned char flags, __
 		{
 //			mpip_log("%s, %d\n", __FILE__, __LINE__);
 			if(path_info->daddr != addr1 && path_info->daddr != addr2){
-
+				list_del(&(path_info->list));
+				kfree(path_info);
+				// path_info->status = 4;
+				// path_info->bw = 0;
 				list_for_each_entry_safe(path_stat, tmp_stat, &ps_head, list)
 				{
 					if (is_equal_node_id(node_id, path_stat->node_id))
@@ -585,13 +588,9 @@ void process_addr_notified_event(unsigned char *node_id, unsigned char flags, __
 						}
 					}
 				}
-
-				list_del(&(path_info->list));
-				kfree(path_info);
 			}
 		}
-	}
-
+	}	
 	
 }
 
@@ -1204,6 +1203,11 @@ int update_path_info(unsigned char session_id)
 	{
 		if (path_info->session_id != session_id)
 			continue;
+		// if (path_info->status == 4)
+		// {
+		// 	path_info->bw = 0;
+		// 	continue;
+		// }
 
 		__u64 highbw = get_path_bw(path_info->path_id, session_id, path_info->bw);
 
@@ -1221,27 +1225,29 @@ int update_path_info(unsigned char session_id)
 			else
 				path_info->bw -= sysctl_mpip_bw_step;
 		}
-		// __be32 ip1 = convert_addr(172, 21, 3, 2);  //eth1 inside
-		__be32 ip1 = convert_addr(216, 165, 113, 122);  //eth0 inside
+		// __be32 ip1 = convert_addr(192, 168, 255, 40);
+		__be32 ip1 = convert_addr(172, 21, 3, 2);  //eth1 
+		// __be32 ip1 = convert_addr(216, 165, 113, 122);  //eth0 
 		__be32 ip2 = convert_addr(172, 21, 2, 2);  //eth1 inside
-		// __be32 ip3 = convert_addr(172, 21, 3, 3);  //eth1 inside
-		__be32 ip3 = convert_addr(216, 165, 113, 123);  //eth0 outside
+		__be32 ip3 = convert_addr(172, 21, 3, 3);  //eth1 inside
+		// __be32 ip3 = convert_addr(216, 165, 113, 123);  //eth0 outside
+		// __be32 ip3 = convert_addr(192, 168, 254, 200);
 		__be32 ip4 = convert_addr(172, 21, 2, 3);  //eth1 outside
 		__be32 ip5 = convert_addr(216, 165, 113, 223); //eth0 lenovo
 		__be32 ip6 = convert_addr(172, 21, 2 , 20);
 
-		if ((path_info->saddr == ip4) && (path_info->daddr == ip1) ||
-			(path_info->saddr == ip3) && (path_info->daddr == ip2) ||
+		if ((path_info->saddr == ip1) && (path_info->daddr == ip4) ||
+			(path_info->saddr == ip2) && (path_info->daddr == ip3) ||
 			(path_info->saddr == ip4) && (path_info->daddr == ip5) ||
 			(path_info->saddr == ip3) && (path_info->daddr == ip6))
 		{
 			path_info->bw = 0;
 		}
-		// else if (path_info->saddr == ip3)
+		// else if (path_info->saddr == ip1)
 		// {
-		// 	path_info->bw = 500;
+		// 	path_info->bw = 250;
 		// }
-		// else if (path_info->saddr == ip4)
+		// else if (path_info->saddr == ip2)
 		// {
 		// 	path_info->bw = 500;
 		// }
@@ -1410,7 +1416,7 @@ void add_sender_session(unsigned char *src_node_id, unsigned char *dst_node_id,
 
 	item->next_seq = 0;
 	item->buf_count = 0;
-	item->max_buf_count = 5;
+	item->max_buf_count = MPIP_TCP_BUF_MAX_LEN;
 	item->protocol = protocol;
 	item->saddr = saddr;
 	item->sport = sport;
@@ -1508,7 +1514,7 @@ struct socket_session_table *get_receiver_session(unsigned char *src_node_id, un
 	}
 	item->next_seq = 0;
 	item->buf_count = 0;
-	item->max_buf_count = 5;
+	item->max_buf_count = MPIP_TCP_BUF_MAX_LEN;
 	item->protocol = protocol;
 	item->saddr = saddr;
 	item->sport = sport;
@@ -1675,17 +1681,21 @@ int add_to_tcp_skb_buf(struct sk_buff *skb, unsigned char session_id)
 
 	__u32 tmp_seq = 0;
 	__u32 max_seq = 0;
+	__u32 min_seq = 0;
 	int i;
-	//rcu_read_lock();
+	int index;
+	int sta = 0;
 
 	list_for_each_entry(socket_session, &ss_head, list)
 	{
-		if (socket_session->session_id == session_id)
+		if (socket_session->session_id == session_id && (session_id != 0) )
 		{
+	  		// rcu_read_lock();
 			tcph = tcp_hdr(skb);
 			if (!tcph)
 			{
 				mpip_log("%s, %d\n", __FILE__, __LINE__);
+				// rcu_read_unlock();
 				goto fail;
 			}
 
@@ -1694,14 +1704,16 @@ int add_to_tcp_skb_buf(struct sk_buff *skb, unsigned char session_id)
 			{
 				mpip_log("late: %d %u, %u, %s, %d\n", socket_session->buf_count,
 						ntohl(tcph->seq), socket_session->next_seq, __FILE__, __LINE__);
-				dst_input(skb);
-				goto success;
+				// dst_input(skb);
+				// rcu_read_unlock();
+				goto fail;
 			}
 
 			if ((socket_session->next_seq == 0) ||
 				(ntohl(tcph->seq) == socket_session->next_seq) ||
 				(ntohl(tcph->seq) == socket_session->next_seq + 1)) //for three-way handshake
 			{
+				// rcu_read_lock();
 				mpip_log("send: %d, %u, %u, %s, %d\n", socket_session->buf_count,
 						ntohl(tcph->seq), socket_session->next_seq, __FILE__, __LINE__);
 				socket_session->next_seq = skb->len - ip_hdr(skb)->ihl * 4 - tcph->doff * 4 + ntohl(tcph->seq);
@@ -1709,7 +1721,7 @@ int add_to_tcp_skb_buf(struct sk_buff *skb, unsigned char session_id)
 
 //				bool come = false;
 //				int come_buf_count = socket_session->buf_count;
-				rcu_read_lock();
+				// *************************************************
 
 recursive:
 				if (socket_session->buf_count > 0)
@@ -1735,7 +1747,6 @@ recursive:
 
 							socket_session->tcp_buf[i].seq = 0;
 							socket_session->tcp_buf[i].skb = NULL;
-
 							socket_session->buf_count -= 1;
 
 //							come = true;
@@ -1745,6 +1756,42 @@ recursive:
 						}
 					}
 				}
+				// ******************************************
+// recursive:
+// 				if (socket_session->buf_count > 0)
+// 				{
+// 					for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
+// 					{
+// 						if (socket_session->tcp_buf[i].seq == 0)
+// 							continue;
+
+// 						dst_input(socket_session->tcp_buf[i].skb);
+
+// 						if (socket_session->tcp_buf[i].seq >= socket_session->next_seq)
+// 						{
+// 							socket_session->next_seq = socket_session->tcp_buf[i].skb->len
+// 													- ip_hdr(socket_session->tcp_buf[i].skb)->ihl * 4
+// 													- tcp_hdr(socket_session->tcp_buf[i].skb)->doff * 4
+// 													+ socket_session->tcp_buf[i].seq;
+
+// 							mpip_log("push: %d, %u, %u, %s, %d\n", socket_session->buf_count,
+// 									socket_session->tcp_buf[i].seq,
+// 									socket_session->next_seq,
+// 									__FILE__, __LINE__);
+
+
+// 							socket_session->tcp_buf[i].seq = 0;
+// 							socket_session->tcp_buf[i].skb = NULL;
+// 							socket_session->buf_count -= 1;
+
+// //							come = true;
+
+// 							// goto recursive;
+
+// 						}
+// 					}
+// 				}
+				// ******************************************
 				// rcu_read_unlock();
 
 //				if (come)
@@ -1762,84 +1809,214 @@ recursive:
 //				}
 				goto success;
 			}
-
-			int count = socket_session->buf_count;
-			if (count == MPIP_TCP_BUF_MAX_LEN)
+			else
 			{
-				rcu_read_lock();
-				for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
+				// ************************************************************8
+				if (socket_session->buf_count == MPIP_TCP_BUF_MAX_LEN)
 				{
-					if (socket_session->tcp_buf[i].seq == 0)
-						continue;
-
-					mpip_log("force push: %d, %u, %u, %s, %d\n", socket_session->buf_count,
-							socket_session->tcp_buf[i].seq,
-							socket_session->next_seq,
-							__FILE__, __LINE__);
-
-					tmp_seq = socket_session->tcp_buf[i].skb->len
-							- ip_hdr(socket_session->tcp_buf[i].skb)->ihl * 4
-							- tcp_hdr(socket_session->tcp_buf[i].skb)->doff * 4
-							+ socket_session->tcp_buf[i].seq;
-
+					tmp_seq = skb->len - ip_hdr(skb)->ihl * 4 - tcph->doff * 4 + ntohl(tcph->seq);
 					if (tmp_seq > max_seq)
 					{
 						max_seq = tmp_seq;
 					}
+					// rcu_read_lock();
 
-					dst_input(socket_session->tcp_buf[i].skb);
+					dst_input(skb);
 
-					socket_session->tcp_buf[i].seq = 0;
-					socket_session->tcp_buf[i].skb = NULL;
-					socket_session->buf_count -= 1;
-				}
-
-				tmp_seq = skb->len - ip_hdr(skb)->ihl * 4 - tcph->doff * 4 + ntohl(tcph->seq);
-				if (tmp_seq > max_seq)
-				{
-					max_seq = tmp_seq;
-				}
-
-				dst_input(skb);
-
-				socket_session->next_seq = max_seq;
-				// rcu_read_unlock();
-				goto success;
-			}
-			else
-			{
-				rcu_read_lock();
-				for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
-				{
-					if (socket_session->tcp_buf[i].seq == 0)
+					
+					for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
 					{
-						socket_session->tcp_buf[i].seq = ntohl(tcph->seq);
-						socket_session->tcp_buf[i].skb = skb;
-						socket_session->buf_count += 1;
+						if (socket_session->tcp_buf[i].skb == NULL)
+							continue;
 
-						mpip_log("out of order: %d, %u, %u, %s, %d\n",
-								socket_session->buf_count,
-								ntohl(tcph->seq), socket_session->next_seq,
+						mpip_log("force push: %d, %u, %u, %s, %d\n", socket_session->buf_count,
+								socket_session->tcp_buf[i].seq,
+								socket_session->next_seq,
 								__FILE__, __LINE__);
-						// rcu_read_unlock();
-						kfree_skb(skb); 
-						goto success;
+
+						tmp_seq = socket_session->tcp_buf[i].skb->len
+								- ip_hdr(socket_session->tcp_buf[i].skb)->ihl * 4
+								- tcp_hdr(socket_session->tcp_buf[i].skb)->doff * 4
+								+ socket_session->tcp_buf[i].seq;
+
+						if (tmp_seq > max_seq)
+						{
+							max_seq = tmp_seq;
+						}
+
+						dst_input(socket_session->tcp_buf[i].skb);
+						// kfree_skb(socket_session->tcp_buf[i].skb);
+
+
+						socket_session->tcp_buf[i].seq = 0;
+						socket_session->tcp_buf[i].skb = NULL;
+						socket_session->buf_count -= 1;
 					}
+
+
+					socket_session->buf_count = 0;
+					socket_session->next_seq = max_seq;
+				// *******************************************************
+				// modi
+// 				if (socket_session->buf_count == MPIP_TCP_BUF_MAX_LEN)
+// 				{
+// 					// tmp_seq = skb->len - ip_hdr(skb)->ihl * 4 - tcph->doff * 4 + ntohl(tcph->seq);
+// 					// if (tmp_seq > max_seq)
+// 					// {
+// 						max_seq = ntohl(tcph->seq);
+// 						sta = 1;
+// 						index = -1;
+// 					// }
+// 					// rcu_read_lock();
+
+// 					// dst_input(skb);
+
+					
+// 					for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
+// 					{
+// 						if (socket_session->tcp_buf[i].seq == 0)
+// 							continue;
+
+// 						mpip_log("force push: %d, %u, %u, %s, %d\n", socket_session->buf_count,
+// 								socket_session->tcp_buf[i].seq,
+// 								socket_session->next_seq,
+// 								__FILE__, __LINE__);
+
+// 						// tmp_seq = socket_session->tcp_buf[i].skb->len
+// 						// 		- ip_hdr(socket_session->tcp_buf[i].skb)->ihl * 4
+// 						// 		- tcp_hdr(socket_session->tcp_buf[i].skb)->doff * 4
+// 						// 		+ socket_session->tcp_buf[i].seq;
+
+// 						if (socket_session->tcp_buf[i].seq > max_seq)
+// 						{
+// 							max_seq = socket_session->tcp_buf[i].seq;
+// 							index = i;
+
+// 						}
+
+
+// 						// dst_input(socket_session->tcp_buf[i].skb);
+// 						// // kfree_skb(socket_session->tcp_buf[i].skb);
+
+
+// 						// socket_session->tcp_buf[i].seq = 0;
+// 						// socket_session->tcp_buf[i].skb = NULL;
+// 						// socket_session->buf_count -= 1;
+// 					}
+// 					if(index == -1)
+// 					{
+// 						tmp_seq = skb->len - ip_hdr(skb)->ihl * 4 - tcph->doff * 4 + ntohl(tcph->seq);
+// 					}
+// 					else
+// 					{
+// 						tmp_seq = socket_session->tcp_buf[index].skb->len
+// 								- ip_hdr(socket_session->tcp_buf[index].skb)->ihl * 4
+// 								- tcp_hdr(socket_session->tcp_buf[index].skb)->doff * 4
+// 								+ socket_session->tcp_buf[index].seq;
+	
+// 					}
+					
+// force:
+// 					if(socket_session->buf_count > 0)
+// 					{
+// 						min_seq = max_seq;
+// 						for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
+// 						{
+// 							if (socket_session->tcp_buf[i].seq == 0)
+// 								continue;
+
+// 							// mpip_log("force push: %d, %u, %u, %s, %d\n", socket_session->buf_count,
+// 							// 		socket_session->tcp_buf[i].seq,
+// 							// 		socket_session->next_seq,
+// 							// 		__FILE__, __LINE__);
+
+// 							// tmp_seq = socket_session->tcp_buf[i].skb->len
+// 							// 		- ip_hdr(socket_session->tcp_buf[i].skb)->ihl * 4
+// 							// 		- tcp_hdr(socket_session->tcp_buf[i].skb)->doff * 4
+// 							// 		+ socket_session->tcp_buf[i].seq;
+
+// 							if (socket_session->tcp_buf[i].seq < min_seq)
+// 							{
+// 								min_seq = socket_session->tcp_buf[i].seq;
+// 								index = i;
+
+// 							}
+// 							// dst_input(socket_session->tcp_buf[i].skb);
+// 							// // kfree_skb(socket_session->tcp_buf[i].skb);
+
+
+// 							// socket_session->tcp_buf[i].seq = 0;
+// 							// socket_session->tcp_buf[i].skb = NULL;
+// 							// socket_session->buf_count -= 1;
+// 						}
+
+// 						if(sta == 1)
+// 						{
+// 							if(min_seq >= socket_session->tcp_buf[i].seq)
+// 							{
+// 								dst_input(skb);
+// 								sta = 0;
+// 							}
+// 							else
+// 							{
+// 								dst_input(socket_session->tcp_buf[index].skb);
+// 								socket_session->tcp_buf[index].seq = 0;
+// 								socket_session->tcp_buf[index].skb = NULL;
+// 								socket_session->buf_count -= 1;
+// 							}
+// 						}
+// 						else
+// 						{
+// 							dst_input(socket_session->tcp_buf[index].skb);
+// 							socket_session->tcp_buf[index].seq = 0;
+// 							socket_session->tcp_buf[index].skb = NULL;
+// 							socket_session->buf_count -= 1;
+// 						}
+// 						goto force;
+// 					}
+
+
+// 					socket_session->buf_count = 0;
+// 					socket_session->next_seq = tmp_seq;
+					// rcu_read_unlock();
+					// modi
+					// *************************************************************
+					goto success;
 				}
-				// rcu_read_unlock();				
-				// goto fail;
+				else
+				{
+					// rcu_read_lock();
+					for (i = 0; i < MPIP_TCP_BUF_MAX_LEN; ++i)
+					{
+						if (socket_session->tcp_buf[i].seq == 0)
+						{
+							socket_session->tcp_buf[i].seq = ntohl(tcph->seq);
+							socket_session->tcp_buf[i].skb = skb;
+							socket_session->buf_count += 1;
+
+							mpip_log("out of order: %d, %u, %u, %s, %d\n",
+									socket_session->buf_count,
+									ntohl(tcph->seq), socket_session->next_seq,
+									__FILE__, __LINE__);
+							// rcu_read_unlock();
+							// kfree_skb(skb); 
+							goto success;
+						}
+					}
+					// rcu_read_unlock();				
+				}
 			}
 		}
 	}
 
 
 fail:
-	rcu_read_unlock();
-	mpip_log("Fail: %s, %d\n", __FILE__, __LINE__);
+	// rcu_read_unlock();
+	// mpip_log("Fail: %s, %d\n", __FILE__, __LINE__);
 	return 0;
 
 success:
-	rcu_read_unlock();
+	// rcu_read_unlock();
 	return 1;
 }
 
@@ -1891,15 +2068,15 @@ bool init_mpip_tcp_connection(struct sk_buff *skb,
 			}
 			else
 			{
-				// if ((daddr1 != 0) && !find_path_info(local_addr->addr, daddr1, sport + 1, dport, session_id))
-				// {
+				if ((daddr1 != 0) && !find_path_info(local_addr->addr, daddr1, sport + 1, dport, session_id))
+				{
 					printk("%d, %d, %d: %s, %s, %d\n", session_id, sport + 1, dport, __FILE__, __FUNCTION__, __LINE__);
 					print_addr_1(local_addr->addr);
 					print_addr_1(daddr1);
 
 					send_mpip_syn(skb, local_addr->addr, daddr1,
 							sport + 1, dport, true, false, session_id);
-				// }
+				}
 			}
 		}
 		else
@@ -2180,6 +2357,12 @@ int add_path_info_udp(unsigned char *node_id, __be32 daddr, __be16 sport,
 			continue;
 		}
 
+
+		// if(daddr>>24 & 0xff != local_addr->addr>>24 & 0xff)
+		// {
+		// 	continue;
+		// }
+
 		item = kzalloc(sizeof(struct path_info_table),	GFP_ATOMIC);
 
 		memcpy(item->node_id, node_id, MPIP_CM_NODE_ID_LEN);
@@ -2416,7 +2599,7 @@ unsigned char find_fastest_path_id(unsigned char *node_id,
 //		is_short = false;
 //	}
 	
-	if ((origin_daddr != 5001 || origin_daddr != 5201 || is_short) && sysctl_mpip_skype)
+	if ((origin_daddr != 5001 || origin_daddr != 5201 ) && sysctl_mpip_skype)
 	{
 	    f_path = find_lowest_delay_path(node_id, session_id);
 
@@ -2434,24 +2617,106 @@ unsigned char find_fastest_path_id(unsigned char *node_id,
 	    }
 	}
 
-	//for ack packet, use the path with lowest delay
-	// if (is_short && sysctl_mpip_skype)
-	// {
-	// 	f_path = find_lowest_delay_path(node_id, session_id);
+	if ((origin_daddr == 5001 || origin_daddr == 5201 ) && sysctl_mpip_skype)
+	{
+		f_path = find_lowest_delay_path(node_id, session_id);
 
-	// 	if (f_path)
-	// 	{
-	// 		*saddr = f_path->saddr;
-	// 		*daddr = f_path->daddr;
-	// 		*sport = f_path->sport;
-	// 		*dport = f_path->dport;
-	// 		f_path->pktcount += 1;
-	// 		f_path_id = f_path->path_id;
+		if (f_path)
+		{
+			list_for_each_entry(path, &pi_head, list)
+			{
+				if (!is_equal_node_id(path->node_id, node_id) ||
+					path->session_id != session_id ||
+					path->status != 0|| path->path_id == f_path->path_id)
+				{
+					continue;
+				}
+				totalbw += path->bw;
+				if (path->bw > f_bw)
+				{
+					f_bw = path->bw;
+					f_path_id = path->path_id;
+					f_path = path;
+				}
+				if (path->delay == 0)
+					path_done = false;
+			}
 
-	// 		goto ret;
+			if (totalbw > 0)
+			{
+				random = get_random_int() % totalbw;
+				random = (random > 0) ? random : -random;
+				tmptotal = 0;
 
-	// 	}
-	// }
+				list_for_each_entry(path, &pi_head, list)
+				{
+					if (!is_equal_node_id(path->node_id, node_id) ||
+						path->session_id != session_id ||
+						path->status != 0)
+					{
+						continue;
+					}
+
+					if (random < (path->bw + tmptotal))
+					{
+						f_path_id = path->path_id;
+						f_path = path;
+
+						break;
+					}
+					else
+					{
+						tmptotal += path->bw;
+					}
+				}
+			}
+
+			if (f_path_id > 0)
+			{
+				*saddr = f_path->saddr;
+				*daddr = f_path->daddr;
+				*sport = f_path->sport;
+				*dport = f_path->dport;
+				f_path->pktcount += 1;
+			}
+			else
+			{
+				f_path = find_path_info(origin_saddr, origin_daddr, origin_sport, origin_dport, session_id);
+				if (f_path)
+				{
+					*saddr = f_path->saddr;
+					*daddr = f_path->daddr;
+					*sport = f_path->sport;
+					*dport = f_path->dport;
+					f_path->pktcount += 1;
+
+					f_path_id = f_path->path_id;
+				}
+			}
+			goto ret;
+	    }
+	}
+
+
+
+	// for ack packet, use the path with lowest delay
+	if (is_short && sysctl_mpip_skype)
+	{
+		f_path = find_lowest_delay_path(node_id, session_id);
+
+		if (f_path)
+		{
+			*saddr = f_path->saddr;
+			*daddr = f_path->daddr;
+			*sport = f_path->sport;
+			*dport = f_path->dport;
+			f_path->pktcount += 1;
+			f_path_id = f_path->path_id;
+
+			goto ret;
+
+		}
+	}
 
 
 	//if comes here, it means all paths have been probed
@@ -2640,8 +2905,11 @@ void get_available_local_addr(void)
 		if (strstr(dev->name, "lo"))
 			continue;
 
-		if (strstr(dev->name, "eth0"))
+		if (strstr(dev->name, "wlan1"))
 			continue;
+
+		if (strstr(dev->name, "dock"))
+			continue;		
 
 		if (!netif_running(dev)|| !netif_carrier_ok(dev))
 		{
@@ -2728,15 +2996,17 @@ void update_addr_change(unsigned long event)
 			if((path_info->saddr != addr1) && (path_info->saddr != addr2)) {	
 				list_del(&(path_info->list));
 				kfree(path_info);
+				// path_info->status = 4;
+				// path_info->bw = 0;
 			}
 		}
-		list_for_each_entry_safe(path_stat, tmp_stat, &ps_head, list)
-		{
-			if((path_info->saddr != addr1) && (path_info->saddr != addr2)) {	
-				list_del(&(path_stat->list));
-				kfree(path_stat);
-			}
-		}
+		// list_for_each_entry_safe(path_stat, tmp_stat, &ps_head, list)
+		// {
+		// 	if((path_info->saddr != addr1) && (path_info->saddr != addr2)) {	
+		// 		list_del(&(path_stat->list));
+		// 		kfree(path_stat);
+		// 	}
+		// }
 		rcu_read_unlock();
 
 		mpip_log("%s, %s, %d\n", __FILE__, __FUNCTION__, __LINE__);
